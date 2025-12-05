@@ -12,14 +12,25 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  
-  // Forgot Password State
   const [showForgot, setShowForgot] = useState(false);
+
+  // Challenge for anti-bot
+  const [challengeAnswer, setChallengeAnswer] = useState('');
+  const [challengeProblem] = useState(() => {
+      const a = Math.floor(Math.random() * 10) + 1;
+      const b = Math.floor(Math.random() * 10) + 1;
+      return { q: `${a} + ${b} = ?`, a: (a + b).toString() };
+  });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     
+    if (challengeAnswer !== challengeProblem.a) {
+        setError('Resposta de segurança incorreta.');
+        return;
+    }
+
     if (!username || !password) {
         setError('Preencha todos os campos.');
         return;
@@ -27,7 +38,6 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
 
     setLoading(true);
     try {
-        // Use the Firestore-based login
         const user = await loginUser(username, password);
         if (user) {
             onLoginSuccess(user);
@@ -36,7 +46,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
         }
     } catch (e: any) {
         console.error("Login failed", e);
-        setError('Erro ao conectar. Tente novamente.');
+        setError('Erro de conexão ou credenciais inválidas.');
     } finally {
         setLoading(false);
     }
@@ -51,7 +61,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
             </div>
             
             {!showForgot ? (
-                <form onSubmit={handleSubmit} className="p-8 space-y-6">
+                <form onSubmit={handleSubmit} className="p-8 space-y-5">
                     {error && (
                         <div className="bg-red-50 text-red-600 p-3 rounded-lg text-sm flex items-center gap-2 animate-in fade-in slide-in-from-top-2">
                             <AlertCircle size={16} /> {error}
@@ -59,22 +69,22 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
                     )}
 
                     <div>
-                        <label className="block text-sm font-bold text-gray-700 mb-2">Usuário (E-mail)</label>
+                        <label className="block text-sm font-bold text-gray-700 mb-1">E-mail</label>
                         <div className="relative">
                             <UserIcon className="absolute left-3 top-3 text-gray-400" size={20} />
                             <input 
-                                type="text"
+                                type="email"
                                 value={username}
                                 onChange={e => setUsername(e.target.value)}
                                 className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none transition-all"
-                                placeholder="Seu e-mail de acesso"
+                                placeholder="exemplo@email.com"
                                 disabled={loading}
                             />
                         </div>
                     </div>
 
                     <div>
-                        <label className="block text-sm font-bold text-gray-700 mb-2">Senha</label>
+                        <label className="block text-sm font-bold text-gray-700 mb-1">Senha</label>
                         <div className="relative">
                             <Lock className="absolute left-3 top-3 text-gray-400" size={20} />
                             <input 
@@ -83,6 +93,21 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
                                 onChange={e => setPassword(e.target.value)}
                                 className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none transition-all"
                                 placeholder="Sua senha secreta"
+                                disabled={loading}
+                            />
+                        </div>
+                    </div>
+
+                    {/* Anti-bot */}
+                    <div className="flex items-center gap-4">
+                        <div className="flex-1">
+                            <label className="block text-xs font-bold text-gray-500 mb-1">Segurança: {challengeProblem.q}</label>
+                            <input 
+                                type="text"
+                                className="w-full p-2 border border-gray-300 rounded text-center font-mono"
+                                value={challengeAnswer}
+                                onChange={e => setChallengeAnswer(e.target.value)}
+                                placeholder="?"
                                 disabled={loading}
                             />
                         </div>
@@ -100,7 +125,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
                     <button 
                         type="button"
                         onClick={() => setShowForgot(true)}
-                        className="w-full text-center text-sm text-gray-500 hover:text-emerald-600 hover:underline mt-4 transition-colors"
+                        className="w-full text-center text-sm text-gray-500 hover:text-emerald-600 hover:underline mt-2 transition-colors"
                     >
                         Esqueci minha senha
                     </button>

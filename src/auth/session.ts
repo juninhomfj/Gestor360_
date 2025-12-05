@@ -1,10 +1,9 @@
 import { User } from '../types';
+import { doc, getDoc } from "firebase/firestore";
+import { db } from "../services/firebase";
 
 const SESSION_KEY = "gestor360_session_v2";
 
-/**
- * Saves the user session to sessionStorage.
- */
 export function saveSession(user: User) {
   const sessionData: User = {
     id: user.id,
@@ -13,25 +12,18 @@ export function saveSession(user: User) {
     role: user.role,
     avatar: user.avatar,
     createdAt: user.createdAt,
-    // Ensure no sensitive data like passwordHash is stored
+    // NO passwordHash stored here
   };
   sessionStorage.setItem(SESSION_KEY, JSON.stringify(sessionData));
 }
 
-/**
- * Clears the user session.
- */
 export function clearSession() {
   sessionStorage.removeItem(SESSION_KEY);
 }
 
-/**
- * Retrieves the current session.
- */
 export function getSession(): User | null {
   const raw = sessionStorage.getItem(SESSION_KEY);
   if (!raw) return null;
-
   try {
     const parsed = JSON.parse(raw);
     if (!parsed || !parsed.id) return null;
@@ -40,4 +32,45 @@ export function getSession(): User | null {
     clearSession();
     return null;
   }
+}
+
+/**
+ * Revalidates the session against Firestore.
+ * This is crucial to ensure the user still exists and role hasn't changed.
+ */
+export async function revalidateSession(): Promise<User | null> {
+    const localUser = getSession();
+    if (!localUser) return null;
+
+    try {
+        const userRef = doc(db, "users", localUser.id);
+        const userSnap = await getDoc(userRef);
+
+        if (userSnap.exists()) {
+            const userData = userSnap.data();
+            // Construct safe user object from DB fresh data
+            const freshUser: User = {
+                id: userData.id,
+                username: userData.username,
+                name: userData.name,
+                role: userData.role,
+                avatar: userData.avatar,
+                createdAt: userData.createdAt,
+                createdBy: userData.createdBy
+            };
+            // Update session storage with fresh data
+            saveSession(freshUser);
+            return freshUser;
+        } else {
+            // User deleted from DB? Kill session.
+            clearSession();
+            return null;
+        }
+    } catch (e) {
+        console.error("Session revalidation error", e);
+        // If DB unreachable, maybe trust local session temporarily? 
+        // For security, usually safer to logout or return localUser if offline support needed.
+        // Returning null forces re-login which is safer if account status unknown.
+        return null; 
+    }
 }

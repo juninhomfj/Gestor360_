@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import Layout from './components/Layout';
+// Importação de componentes do sistema
 import Dashboard from './components/Dashboard';
 import SalesList from './components/SalesList';
 import SalesForm from './components/SalesForm';
@@ -23,24 +24,20 @@ import Login from './components/Login';
 import AdminUsers from './components/AdminUsers';
 import UserProfile from './components/UserProfile';
 import ToastContainer, { ToastMessage } from './components/Toast';
+import PendingSales from './components/PendingSales';
 import { Sale, ProductType, SaleFormData, CommissionRule, AppMode, FinanceAccount, Transaction, CreditCard, TransactionCategory, ImportMapping, ReportConfig, FinanceGoal, Challenge, ChallengeCell, TransactionType, Receivable, AppPreferences, DashboardWidgetConfig, User } from './types';
 import * as Logic from './services/logic';
-import { getSession, clearSession } from './auth/session';
-import PendingSales from './components/PendingSales';
-
-// Ensure we are importing from the correct auth module
-// If you are using the new Firestore auth, Login component handles the logic internally
-// and calls onLoginSuccess.
+import { revalidateSession, clearSession } from './auth/session';
 
 export default function App() {
   // --- AUTH STATE ---
   const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [authLoading, setAuthLoading] = useState(true); // New dedicated loading state for auth
+  const [authLoading, setAuthLoading] = useState(true);
 
+  // --- APP STATE ---
   const [appMode, setAppMode] = useState<AppMode>('SALES');
   const [activeTab, setActiveTab] = useState<string>('dashboard');
   const [settingsSubTab, setSettingsSubTab] = useState<string>('commissions');
-  
   const [darkMode, setDarkMode] = useState(true);
   
   // SALES Data State
@@ -60,7 +57,7 @@ export default function App() {
   const [finCells, setFinCells] = useState<ChallengeCell[]>([]);
   const [finReceivables, setFinReceivables] = useState<Receivable[]>([]); 
 
-  const [loadingData, setLoadingData] = useState(false); // Loading for data, distinct from auth
+  const [loadingData, setLoadingData] = useState(false);
   const [hasUndo, setHasUndo] = useState(false); 
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
@@ -71,19 +68,31 @@ export default function App() {
   const [importRawData, setImportRawData] = useState<any[][]>([]);
   const [backupModal, setBackupModal] = useState<{ isOpen: boolean, mode: 'BACKUP'|'RESTORE'|'CLEAR' }>({ isOpen: false, mode: 'BACKUP' });
   const [isBulkDateOpen, setIsBulkDateOpen] = useState(false);
-  
-  // Finance Modal State
   const [isFinanceFormOpen, setIsFinanceFormOpen] = useState(false);
   const [financeFormType, setFinanceFormType] = useState<TransactionType>('EXPENSE');
 
-  // **NOVA LÓGICA: ATUALIZA O TÍTULO DA PÁGINA**
+  // ** SESSION REVALIDATION ON MOUNT **
+  useEffect(() => {
+    const init = async () => {
+      try {
+        const user = await revalidateSession();
+        if (user) {
+          handleLoginSuccess(user);
+        }
+      } catch (e) {
+        console.error("Session revalidation failed:", e);
+        clearSession();
+      } finally {
+        setAuthLoading(false);
+      }
+    };
+    init();
+  }, []);
+
+  // Title Update
   useEffect(() => {
     if (currentUser) {
-        if (appMode === 'SALES') {
-            document.title = 'Gestor360 - Vendas';
-        } else {
-            document.title = 'Gestor360 - Finanças';
-        }
+        document.title = appMode === 'SALES' ? 'Gestor360 - Vendas' : 'Gestor360 - Finanças';
     } else {
         document.title = 'Gestor360 - Login';
     }
@@ -100,30 +109,9 @@ export default function App() {
       setToasts(prev => prev.filter(t => t.id !== id));
   };
 
-  // --- INITIALIZATION ---
-  useEffect(() => {
-      const initAuth = () => {
-        try {
-            const sessionUser = getSession();
-            if (sessionUser) {
-                console.log("Session found for user:", sessionUser.username);
-                handleLoginSuccess(sessionUser);
-            } else {
-                console.log("No session found, showing login.");
-            }
-        } catch (e) {
-            console.error("Auth initialization error:", e);
-        } finally {
-            setAuthLoading(false);
-        }
-      };
-      
-      initAuth();
-  }, []);
-
   const handleLoginSuccess = (user: User) => {
       setCurrentUser(user);
-      Logic.setLogicUser(user.id); // IMPORTANT: Set user ID for isolated storage
+      Logic.setLogicUser(user.id);
       loadDataForUser();
   };
 
@@ -132,7 +120,6 @@ export default function App() {
       setCurrentUser(null);
       setSales([]);
       setFinAccounts([]);
-      // Force reload to clear memory
       window.location.reload();
   };
 
@@ -184,7 +171,7 @@ export default function App() {
     }
   }, [darkMode, currentUser]);
 
-  // Preference Handlers
+  // Handlers (Simplified for brevity, assuming implementations exist in Logic)
   const handleToggleHideValues = () => {
       const newPrefs = { ...appPreferences, hideValues: !appPreferences.hideValues };
       setAppPreferences(newPrefs);
@@ -195,19 +182,15 @@ export default function App() {
       const newPrefs = { ...appPreferences };
       if (isFinance) newPrefs.financeConfig = config;
       else newPrefs.salesConfig = config;
-      
       setAppPreferences(newPrefs);
       Logic.saveAppPreferences(newPrefs);
   };
 
-  // CRUD Operations - SALES
   const handleSaveSale = (formData: SaleFormData) => {
     const activeRules = formData.type === ProductType.BASICA ? rulesBasic : rulesNatal;
     let newSalesList: Sale[];
-
     Logic.takeSnapshot(sales);
     setHasUndo(true);
-
     if (editingSale) {
       const computed = Logic.computeSaleMetrics(formData, activeRules);
       const updatedSale: Sale = { ...computed, id: editingSale.id };
@@ -216,7 +199,6 @@ export default function App() {
       const newSale = Logic.computeSaleMetrics(formData, activeRules);
       newSalesList = [...sales, newSale];
     }
-
     setSales(newSalesList);
     Logic.saveSales(newSalesList);
     setIsFormOpen(false);
@@ -230,7 +212,32 @@ export default function App() {
       const newSales = sales.filter(s => s.id !== sale.id);
       setSales(newSales);
       Logic.saveSales(newSales);
-      addToast('INFO', 'Venda excluída. Você pode desfazer se necessário.');
+      addToast('INFO', 'Venda excluída.');
+  };
+
+  const handleBillSale = (sale: Sale, date: string) => {
+      const updatedSales = sales.map(s => s.id === sale.id ? { ...s, date } : s);
+      setSales(updatedSales);
+      Logic.saveSales(updatedSales);
+      addToast('SUCCESS', 'Venda faturada com sucesso!');
+  };
+
+  const handleBillBulk = (ids: string[], date: string) => {
+      Logic.takeSnapshot(sales);
+      setHasUndo(true);
+      const updatedSales = sales.map(s => ids.includes(s.id) ? { ...s, date } : s);
+      setSales(updatedSales);
+      Logic.saveSales(updatedSales);
+      addToast('SUCCESS', `${ids.length} vendas faturadas!`);
+  };
+
+  const handleDeleteBulk = (ids: string[]) => {
+      Logic.takeSnapshot(sales);
+      setHasUndo(true);
+      const updatedSales = sales.filter(s => !ids.includes(s.id));
+      setSales(updatedSales);
+      Logic.saveSales(updatedSales);
+      addToast('INFO', `${ids.length} vendas excluídas.`);
   };
 
   const handleUpdateRules = (type: ProductType, newRules: CommissionRule[]) => {
@@ -249,7 +256,7 @@ export default function App() {
       setSales(updatedSales);
       Logic.saveSales(updatedSales);
     }
-    addToast('SUCCESS', 'Tabela de comissão atualizada!');
+    addToast('SUCCESS', 'Tabela atualizada!');
   };
 
   const handleUpdateReportConfig = (newConfig: ReportConfig) => {
@@ -266,15 +273,14 @@ export default function App() {
         const file = e.target.files[0];
         const rows = await Logic.readExcelFile(file);
         if (rows.length < 2) {
-            addToast('ERROR', "O arquivo parece estar vazio ou sem dados.");
+            addToast('ERROR', "Arquivo vazio.");
             return;
         }
         setImportRawData(rows);
         setIsImportModalOpen(true);
         e.target.value = ''; 
       } catch (error) {
-        console.error(error);
-        addToast('ERROR', 'Erro ao ler o arquivo.');
+        addToast('ERROR', 'Erro ao ler arquivo.');
       }
     }
   };
@@ -283,75 +289,64 @@ export default function App() {
     try {
         Logic.takeSnapshot(sales); 
         setHasUndo(true);
-
         const importedSales = Logic.processImportWithMapping(importRawData, mapping, rulesBasic, rulesNatal);
         const newSalesList = [...sales, ...importedSales];
         setSales(newSalesList);
         Logic.saveSales(newSalesList);
-        addToast('SUCCESS', `${importedSales.length} vendas importadas com sucesso!`);
+        addToast('SUCCESS', `${importedSales.length} vendas importadas!`);
         setIsImportModalOpen(false);
         setImportRawData([]);
     } catch (e) {
-        addToast('ERROR', "Erro ao processar os dados.");
+        addToast('ERROR', "Erro ao processar.");
     }
   };
 
-  const handleClearRequest = () => {
-     setBackupModal({ isOpen: true, mode: 'CLEAR' });
-  };
-  
-  const handleRestoreRequest = () => {
-     setBackupModal({ isOpen: true, mode: 'RESTORE' });
-  };
-
+  const handleClearRequest = () => { setBackupModal({ isOpen: true, mode: 'CLEAR' }); };
+  const handleRestoreRequest = () => { setBackupModal({ isOpen: true, mode: 'RESTORE' }); };
   const handleRestoreSuccess = () => {
       setBackupModal({ ...backupModal, isOpen: false });
-      addToast('SUCCESS', 'Backup restaurado com sucesso! Reiniciando sistema...');
-      setTimeout(() => {
-          window.location.reload();
-      }, 2500);
+      addToast('SUCCESS', 'Backup restaurado!');
+      setTimeout(() => window.location.reload(), 2000);
   };
 
   const handleAdvancedBulkUpdate = (targetDate: string, filterType: ProductType | 'ALL', launchDateFrom: string, onlyEmpty: boolean) => {
       Logic.takeSnapshot(sales); 
       setHasUndo(true);
-
       let updatedCount = 0;
       const updatedSales = sales.map(s => {
           if (filterType !== 'ALL' && s.type !== filterType) return s;
           const sLaunchDateStr = s.completionDate ? s.completionDate.split('T')[0] : (s.date ? s.date.split('T')[0] : '');
           if (!sLaunchDateStr || sLaunchDateStr < launchDateFrom) return s;
           if (onlyEmpty && (s.date && s.date.length > 8)) return s;
-
           updatedCount++;
           return { ...s, date: targetDate };
       });
-
       if (updatedCount > 0) {
           setSales(updatedSales);
           Logic.saveSales(updatedSales);
           setIsBulkDateOpen(false); 
-          setTimeout(() => { addToast('SUCCESS', `${updatedCount} vendas atualizadas!`); }, 200);
+          addToast('SUCCESS', `${updatedCount} vendas atualizadas!`);
       } else {
-          addToast('INFO', "Nenhuma venda correspondente encontrada.");
+          addToast('INFO', "Nenhuma venda correspondente.");
       }
   };
 
   const handleUndo = () => {
-      if (confirm("Deseja desfazer a última operação em massa?")) {
+      if (confirm("Desfazer última operação?")) {
           const restored = Logic.restoreSnapshot();
           if (restored) {
               setSales(restored);
               Logic.saveSales(restored);
               Logic.clearSnapshot();
               setHasUndo(false);
-              addToast('SUCCESS', "Ação desfeita com sucesso.");
+              addToast('SUCCESS', "Desfeito.");
           } else {
-              addToast('ERROR', "Não foi possível restaurar.");
+              addToast('ERROR', "Impossível restaurar.");
           }
       }
   };
 
+  // Finance Handlers
   const handleUpdateFinance = (acc: FinanceAccount[], trans: Transaction[], cards: CreditCard[]) => {
     setFinAccounts(acc);
     setFinTransactions(trans);
@@ -363,18 +358,15 @@ export default function App() {
       setFinCategories(cats);
       Logic.saveFinanceData(finAccounts, finCards, finTransactions, cats, finGoals, finChallenges, finCells, finReceivables);
   };
-
   const handleUpdateGoals = (goals: FinanceGoal[]) => {
       setFinGoals(goals);
       Logic.saveFinanceData(finAccounts, finCards, finTransactions, finCategories, goals, finChallenges, finCells, finReceivables);
   };
-
   const handleUpdateChallenges = (challenges: Challenge[], cells: ChallengeCell[]) => {
       setFinChallenges(challenges);
       setFinCells(cells);
       Logic.saveFinanceData(finAccounts, finCards, finTransactions, finCategories, finGoals, challenges, cells, finReceivables);
   };
-
   const handleUpdateReceivables = (newRecs: Receivable[]) => {
       setFinReceivables(newRecs);
       Logic.saveFinanceData(finAccounts, finCards, finTransactions, finCategories, finGoals, finChallenges, finCells, newRecs);
@@ -400,7 +392,7 @@ export default function App() {
       });
       handleUpdateFinance(newAccounts, newTransactions, finCards);
       setIsFinanceFormOpen(false);
-      addToast('SUCCESS', incomingTransactions.length > 1 ? 'Transações registradas!' : 'Lançamento registrado!');
+      addToast('SUCCESS', 'Lançamento registrado!');
   };
 
   const handleConfirmTransaction = (transaction: Transaction) => {
@@ -418,7 +410,7 @@ export default function App() {
           return acc;
       });
       handleUpdateFinance(newAccounts, updatedTransactions, finCards);
-      addToast('SUCCESS', 'Transação efetivada com sucesso!');
+      addToast('SUCCESS', 'Transação efetivada!');
   };
 
   const handlePayInvoice = (cardId: string, accountId: string, amount: number, date: string) => {
@@ -449,7 +441,7 @@ export default function App() {
       setFinTransactions(finalTransactions);
       setFinAccounts(updatedAccounts);
       Logic.saveFinanceData(updatedAccounts, finCards, finalTransactions, finCategories, finGoals, finChallenges, finCells, finReceivables);
-      addToast('SUCCESS', 'Fatura paga e limite liberado!');
+      addToast('SUCCESS', 'Fatura paga!');
   };
 
   const handleDistribute = (receivableId: string, distributions: { accountId: string, value: number }[]) => {
@@ -479,29 +471,26 @@ export default function App() {
       setFinTransactions([...newTrans, ...finTransactions]); 
       setFinAccounts(newAccounts);
       Logic.saveFinanceData(newAccounts, finCards, [...newTrans, ...finTransactions], finCategories, finGoals, finChallenges, finCells, updatedReceivables);
-      addToast('SUCCESS', 'Distribuição realizada com sucesso!');
+      addToast('SUCCESS', 'Distribuição realizada!');
   };
 
   const handleDeleteTransaction = (id: string) => {
-      if(confirm('Excluir transação? (O saldo das contas não será revertido automaticamente)')) {
+      if(confirm('Excluir transação?')) {
           const newTrans = finTransactions.filter(t => t.id !== id);
           handleUpdateFinance(finAccounts, newTrans, finCards);
-          addToast('INFO', 'Transação excluída.');
+          addToast('INFO', 'Excluído.');
       }
   };
 
-  // --- RENDER ---
-  
   if (authLoading) {
       return (
           <div className="flex flex-col items-center justify-center h-screen bg-slate-900 text-emerald-500">
              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-500 mb-4"></div>
-             <p>Verificando sessão...</p>
+             <p>Carregando...</p>
           </div>
       );
   }
 
-  // If not logged in, show Login
   if (!currentUser) {
       return (
           <>
