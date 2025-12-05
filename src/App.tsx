@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import Layout from './components/Layout';
-// Importação de componentes do sistema
 import Dashboard from './components/Dashboard';
 import SalesList from './components/SalesList';
 import SalesForm from './components/SalesForm';
@@ -73,20 +72,39 @@ export default function App() {
 
   // ** SESSION REVALIDATION ON MOUNT **
   useEffect(() => {
+    let isMounted = true;
+    
     const init = async () => {
       try {
-        const user = await revalidateSession();
-        if (user) {
-          handleLoginSuccess(user);
+        // Safety timeout: If Firebase hangs, force login screen after 3s
+        const timeoutPromise = new Promise<null>((resolve) => 
+            setTimeout(() => resolve(null), 3000)
+        );
+
+        const sessionPromise = revalidateSession();
+        
+        // Race between actual validation and timeout
+        const user = await Promise.race([sessionPromise, timeoutPromise]);
+
+        if (isMounted) {
+            if (user) {
+              handleLoginSuccess(user);
+            } else {
+              console.log("Session invalid or timed out, clearing.");
+              clearSession();
+            }
         }
       } catch (e) {
-        console.error("Session revalidation failed:", e);
-        clearSession();
+        console.error("Session revalidation critical failure:", e);
+        if (isMounted) clearSession();
       } finally {
-        setAuthLoading(false);
+        if (isMounted) setAuthLoading(false);
       }
     };
+    
     init();
+
+    return () => { isMounted = false; };
   }, []);
 
   // Title Update
@@ -392,7 +410,7 @@ export default function App() {
       });
       handleUpdateFinance(newAccounts, newTransactions, finCards);
       setIsFinanceFormOpen(false);
-      addToast('SUCCESS', 'Lançamento registrado!');
+      addToast('SUCCESS', incomingTransactions.length > 1 ? 'Transações registradas!' : 'Lançamento registrado!');
   };
 
   const handleConfirmTransaction = (transaction: Transaction) => {
@@ -410,7 +428,7 @@ export default function App() {
           return acc;
       });
       handleUpdateFinance(newAccounts, updatedTransactions, finCards);
-      addToast('SUCCESS', 'Transação efetivada!');
+      addToast('SUCCESS', 'Transação efetivada com sucesso!');
   };
 
   const handlePayInvoice = (cardId: string, accountId: string, amount: number, date: string) => {
@@ -471,14 +489,14 @@ export default function App() {
       setFinTransactions([...newTrans, ...finTransactions]); 
       setFinAccounts(newAccounts);
       Logic.saveFinanceData(newAccounts, finCards, [...newTrans, ...finTransactions], finCategories, finGoals, finChallenges, finCells, updatedReceivables);
-      addToast('SUCCESS', 'Distribuição realizada!');
+      addToast('SUCCESS', 'Distribuição realizada com sucesso!');
   };
 
   const handleDeleteTransaction = (id: string) => {
-      if(confirm('Excluir transação?')) {
+      if(confirm('Excluir transação? (O saldo das contas não será revertido automaticamente)')) {
           const newTrans = finTransactions.filter(t => t.id !== id);
           handleUpdateFinance(finAccounts, newTrans, finCards);
-          addToast('INFO', 'Excluído.');
+          addToast('INFO', 'Transação excluída.');
       }
   };
 
@@ -486,7 +504,7 @@ export default function App() {
       return (
           <div className="flex flex-col items-center justify-center h-screen bg-slate-900 text-emerald-500">
              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-500 mb-4"></div>
-             <p>Carregando...</p>
+             <p className="mt-2 text-sm font-medium text-slate-400">Verificando credenciais...</p>
           </div>
       );
   }
@@ -504,7 +522,7 @@ export default function App() {
        return (
           <div className="flex flex-col items-center justify-center h-screen bg-slate-900 text-emerald-500">
              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-500 mb-4"></div>
-             <p>Carregando dados...</p>
+             <p className="mt-2 text-sm font-medium text-slate-400">Carregando seus dados...</p>
           </div>
       );
   }

@@ -68,9 +68,12 @@ export async function revalidateSession(): Promise<User | null> {
         }
     } catch (e) {
         console.error("Session revalidation error", e);
-        // If DB unreachable, maybe trust local session temporarily? 
-        // For security, usually safer to logout or return localUser if offline support needed.
-        // Returning null forces re-login which is safer if account status unknown.
-        return null; 
+        // If DB unreachable, assume local is valid (offline mode or temp failure)
+        // But for security, if it's a permission error, we should logout.
+        // For now, allow continued use if cached, but log warning.
+        // Ideally, implement robust offline logic.
+        // Returning localUser is safer for UX in flaky networks, but less secure if user was banned.
+        // Given it's a personal/team tool, UX priority:
+        return localUser; 
     }
 }
